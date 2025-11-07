@@ -1,37 +1,39 @@
-name: Deploy Cloud App
+
+name: Simple EC2 Deploy
 
 on:
   push:
     branches:
-      - main   # 👈 main branch par push hone par run karega
+      - main   # jab main branch par push hoga
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Repo checkout karo
+      # 1️⃣ Code checkout
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Step 2: SSH setup for EC2
+      # 2️⃣ Setup SSH key
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_KEY }}" > ~/.ssh/id_rsa
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-      # Step 3: Project files EC2 par bhejna
+      # 3️⃣ Copy project files to EC2
       - name: Upload project to EC2
         run: |
-          rsync -avz --delete -e "ssh -i ~/.ssh/id_rsa" ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ubuntu/cloud-demo/
+          rsync -avz -e "ssh -i ~/.ssh/id_rsa" ./ \
+          ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/cloud-demo/
 
-      # Step 4: EC2 par Docker container rebuild & run
+      # 4️⃣ Deploy on EC2 (Docker build & run)
       - name: Deploy on EC2
         run: |
           ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
-            cd /home/ubuntu/cloud-demo &&
+            cd /home/${{ secrets.EC2_USER }}/cloud-demo &&
             docker stop cloud-demo || true &&
             docker rm cloud-demo || true &&
             docker build -t cloud-demo . &&
