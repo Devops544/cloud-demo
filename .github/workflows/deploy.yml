@@ -1,4 +1,4 @@
-name: Simple Deploy
+name: Deploy Cloud App
 
 on:
   push:
@@ -10,28 +10,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Connect to EC2 and deploy
+      - name: Set up SSH
         run: |
-          # Setup SSH key
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-          # Send project files to EC2 (without .env or node_modules)
-          rsync -avz --exclude='.git' --exclude='node_modules' --exclude='.env' ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ubuntu/cloud-demo
+      - name: Upload project files to EC2
+        run: |
+          rsync -avz -e "ssh -i ~/.ssh/id_rsa" ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ubuntu/cloud-demo/
 
-          # Run on EC2
-          ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
-            cd /home/ubuntu/cloud-demo &&
-            echo 'PORT=${{ secrets.PORT }}' > .env &&
-            echo 'DB_USER=${{ secrets.DB_USER }}' >> .env &&
-            echo 'DB_PASS=${{ secrets.DB_PASS }}' >> .env &&
-            docker stop cloud-demo || true &&
-            docker rm cloud-demo || true &&
-            docker build -t cloud-demo . &&
-            docker run -d -p 3001:3001 --env-file .env --name cloud-demo cloud-demo
-          "
+      - name: Run project on EC2
+        run: |
+          ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            cd /home/ubuntu/cloud-demo
+            docker stop cloud-demo || true
+            docker rm cloud-demo || true
+            docker build -t cloud-demo:latest \
+              --build-arg PORT=${{ secrets.PORT }} \
+              --build-arg DB_USER=${{ secrets.DB_USER }} \
+              --build-arg DB_PASS=${{ secrets.DB_PASS }} .
+            docker run -d -p 3001:3001 --name cloud-demo cloud-demo:latest
+          EOF
+
