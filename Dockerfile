@@ -1,0 +1,15 @@
+FROM node:18
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+ARG PORT
+ARG DB_USER
+ARG DB_PASS
+
+ENV PORT=$PORT
+ENV DB_USER=$DB_USER
+ENV DB_PASS=#DB_PASS
+EXPOSE 3000
+CMD ["npm", "start"]
+
