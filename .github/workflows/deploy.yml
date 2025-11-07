@@ -1,38 +1,42 @@
-
 name: Simple EC2 Deploy
 
 on:
   push:
     branches:
-      - main   # jab main branch par push hoga
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Code checkout
+      # 1️⃣ Checkout code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2️⃣ Setup SSH key
+      # 2️⃣ Setup SSH
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/my-key.pem
+          chmod 600 ~/.ssh/my-key.pem
           ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-      # 3️⃣ Copy project files to EC2
+      # 3️⃣ (Optional) Test SSH
+      - name: Test SSH connection
+        run: |
+          ssh -i ~/.ssh/my-key.pem -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "echo ✅ SSH connection successful!"
+
+      # 4️⃣ Upload files to EC2
       - name: Upload project to EC2
         run: |
-          rsync -avz -e "ssh -i ~/.ssh/id_rsa" ./ \
+          rsync -avz -e "ssh -i ~/.ssh/my-key.pem -o StrictHostKeyChecking=no" ./ \
           ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/cloud-demo/
 
-      # 4️⃣ Deploy on EC2 (Docker build & run)
+      # 5️⃣ Deploy on EC2 (Docker build & run)
       - name: Deploy on EC2
         run: |
-          ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+          ssh -i ~/.ssh/my-key.pem -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
             cd /home/${{ secrets.EC2_USER }}/cloud-demo &&
             docker stop cloud-demo || true &&
             docker rm cloud-demo || true &&
