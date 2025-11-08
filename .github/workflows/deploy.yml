@@ -33,13 +33,13 @@ jobs:
           rsync -avz -e "ssh -i ~/.ssh/my-key.pem -o StrictHostKeyChecking=no" ./ \
           ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/cloud-demo/
 
-       - name: Deploy on EC2
-         run: |
-           ssh -i ~/.ssh/my-key.pem -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
-           cd /home/${{ secrets.EC2_USER }}/cloud-demo &&
-           sudo docker stop cloud-demo || true &&
-           sudo docker rm cloud-demo || true &&
-           sudo docker build -t cloud-demo . &&
-           sudo docker run -d -p 3001:3001 --name cloud-demo cloud-demo
-    "
-
+      # 5️⃣ Deploy on EC2 (fixed indentation)
+      - name: Deploy on EC2
+        run: |
+          ssh -i ~/.ssh/my-key.pem -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            cd /home/${{ secrets.EC2_USER }}/cloud-demo &&
+            sudo docker stop cloud-demo || true &&
+            sudo docker rm cloud-demo || true &&
+            sudo docker build -t cloud-demo . &&
+            sudo docker run -d -p 3001:3001 --name cloud-demo cloud-demo
+          "
