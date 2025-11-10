@@ -3,41 +3,53 @@ name: Build & Deploy to EC2 via GHCR
 on:
   push:
     branches:
-      - main   # triggers when you push to main branch
+      - main   # Run this when you push to main branch
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout your code
-      - name: Checkout repository
+      # 1️⃣ Checkout the latest code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2️⃣ Log in to GitHub Container Registry
-      - name: Log in to GHCR
-        run: echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ secrets.GHCR_USERNAME }} --password-stdin
+      # 2️⃣ Set username to lowercase (once, for all steps)
+      - name: Set lowercase username
+        id: vars
+        run: echo "username=$(echo '${{ secrets.GHCR_USERNAME }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
-      # 3️⃣ Build Docker image
+      # 3️⃣ Log in to GitHub Container Registry
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ steps.vars.outputs.username }} --password-stdin
+
+      # 4️⃣ Build Docker image
       - name: Build Docker image
         run: |
-          docker build -t ghcr.io/${{ secrets.GHCR_USERNAME }}/cloud-demo:latest .
+          echo "🚧 Building image for ${{ steps.vars.outputs.username }}..."
+          docker build -t ghcr.io/${{ steps.vars.outputs.username }}/cloud-demo:latest .
+          echo "✅ Build complete!"
 
-      # 4️⃣ Push image to GHCR
-      - name: Push Docker image to GHCR
+      # 5️⃣ Push Docker image to GHCR
+      - name: Push Docker image
         run: |
-          docker push ghcr.io/${{ secrets.GHCR_USERNAME }}/cloud-demo:latest
+          echo "📦 Pushing image to GitHub Container Registry..."
+          docker push ghcr.io/${{ steps.vars.outputs.username }}/cloud-demo:latest
+          echo "✅ Image pushed successfully!"
 
-      # 5️⃣ Deploy on EC2
-      - name: SSH & Deploy on EC2
+      # 6️⃣ SSH into EC2 and deploy the container
+      - name: Deploy on EC2
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/my-key.pem
           chmod 600 ~/.ssh/my-key.pem
+
+          echo "🚀 Connecting to EC2 and deploying container..."
           ssh -i ~/.ssh/my-key.pem -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
-            docker login ghcr.io -u ${{ secrets.GHCR_USERNAME }} -p ${{ secrets.GHCR_TOKEN }} &&
-            docker pull ghcr.io/${{ secrets.GHCR_USERNAME }}/cloud-demo:latest &&
+            docker login ghcr.io -u ${{ steps.vars.outputs.username }} -p ${{ secrets.GHCR_TOKEN }} &&
+            docker pull ghcr.io/${{ steps.vars.outputs.username }}/cloud-demo:latest &&
             docker stop cloud-demo || true &&
             docker rm cloud-demo || true &&
-            docker run -d -p 3001:3001 --name cloud-demo ghcr.io/${{ secrets.GHCR_USERNAME }}/cloud-demo:latest
+            docker run -d -p 3001:3001 --name cloud-demo ghcr.io/${{ steps.vars.outputs.username }}/cloud-demo:latest
           "
+          echo "✅ Deployment finished!"
