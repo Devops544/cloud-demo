@@ -1,55 +1,76 @@
-name: Build & Deploy to EC2 via GHCR
+name: Blue-Green Deploy Cloud Demo to EC2
 
 on:
   push:
     branches:
-      - main   # Run this when you push to main branch
+      - main
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout the latest code
+      # 1️ Checkout latest code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2️⃣ Set username to lowercase (once, for all steps)
+      # 2️ Lowercase GHCR username
       - name: Set lowercase username
         id: vars
         run: echo "username=$(echo '${{ secrets.GHCR_USERNAME }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
-      # 3️⃣ Log in to GitHub Container Registry
+      # 3️ Log in to GHCR
       - name: Log in to GHCR
         run: echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ steps.vars.outputs.username }} --password-stdin
 
-      # 4️⃣ Build Docker image
+      # 4️ Build Docker image
       - name: Build Docker image
-        run: |
-          echo "🚧 Building image for ${{ steps.vars.outputs.username }}..."
-          docker build -t ghcr.io/${{ steps.vars.outputs.username }}/cloud-demo:latest .
-          echo "✅ Build complete!"
+        run: docker build -t ghcr.io/${{ steps.vars.outputs.username }}/cloud-demo:latest .
 
-      # 5️⃣ Push Docker image to GHCR
+      # 5️ Push Docker image
       - name: Push Docker image
-        run: |
-          echo "📦 Pushing image to GitHub Container Registry..."
-          docker push ghcr.io/${{ steps.vars.outputs.username }}/cloud-demo:latest
-          echo "✅ Image pushed successfully!"
+        run: docker push ghcr.io/${{ steps.vars.outputs.username }}/cloud-demo:latest
 
-      # 6️⃣ SSH into EC2 and deploy the container
-      - name: Deploy on EC2
+      # 6️ Blue-Green deployment on EC2
+      - name: Blue-Green Deploy on EC2
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/my-key.pem
-          chmod 600 ~/.ssh/my-key.pem
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/key.pem
+          chmod 600 ~/.ssh/key.pem
 
-          echo "🚀 Connecting to EC2 and deploying container..."
-          ssh -i ~/.ssh/my-key.pem -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
-            docker login ghcr.io -u ${{ steps.vars.outputs.username }} -p ${{ secrets.GHCR_TOKEN }} &&
-            docker pull ghcr.io/${{ steps.vars.outputs.username }}/cloud-demo:latest &&
-            docker stop cloud-demo || true &&
-            docker rm cloud-demo || true &&
-            docker run -d -p 3001:3001 --name cloud-demo ghcr.io/${{ steps.vars.outputs.username }}/cloud-demo:latest
+          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            USERNAME=$(echo '${{ secrets.GHCR_USERNAME }}' | tr '[:upper:]' '[:lower:]')
+
+            # Login to GHCR on EC2
+            docker login ghcr.io -u \$USERNAME -p ${{ secrets.GHCR_TOKEN }}
+
+            # Pull latest image
+            docker pull ghcr.io/\$USERNAME/cloud-demo:latest
+
+            # Run GREEN container on port 3002
+            docker stop cloud-demo-green || true
+            docker rm cloud-demo-green || true
+            docker run -d -p 3002:3001 --name cloud-demo-green ghcr.io/\$USERNAME/cloud-demo:latest
+
+            # Wait for GREEN to start
+            sleep 10
+
+            # Health check GREEN
+            if curl -s http://localhost:3002/health | grep -q 'ok'; then
+              echo '✅ GREEN is healthy! Switching traffic...'
+
+              # Update Caddy to point to GREEN (port 3002)
+              sudo sed -i 's/127.0.0.1:3001/127.0.0.1:3002/' /etc/caddy/Caddyfile
+              sudo caddy reload
+
+              # Stop old BLUE container
+              docker stop cloud-demo || true
+              docker rm cloud-demo || true
+
+              echo '🚀 Traffic switched to GREEN (port 3002)'
+            else
+              echo '❌ GREEN failed health check. Keeping BLUE live.'
+              docker stop cloud-demo-green || true
+              docker rm cloud-demo-green || true
+            fi
           "
-          echo "✅ Deployment finished!"
