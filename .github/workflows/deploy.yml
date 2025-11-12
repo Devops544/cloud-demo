@@ -31,7 +31,7 @@ jobs:
       - name: Push Docker image
         run: docker push ghcr.io/${{ steps.vars.outputs.username }}/cloud-demo:latest
 
-      # 6️ Blue-Green deployment on EC2
+      # 6️ Blue-Green deployment on EC2 (no downtime rollback)
       - name: Blue-Green Deploy on EC2
         run: |
           mkdir -p ~/.ssh
@@ -41,35 +41,27 @@ jobs:
           ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
             USERNAME=$(echo '${{ secrets.GHCR_USERNAME }}' | tr '[:upper:]' '[:lower:]')
 
-            # Login to GHCR on EC2
+            echo ' Logging into GHCR...'
             docker login ghcr.io -u \$USERNAME -p ${{ secrets.GHCR_TOKEN }}
 
-            # Pull latest image
+            echo ' Pulling latest image...'
             docker pull ghcr.io/\$USERNAME/cloud-demo:latest
 
-            # Run GREEN container on port 3002
+            echo ' Starting GREEN container on port 3002...'
             docker stop cloud-demo-green || true
             docker rm cloud-demo-green || true
             docker run -d -p 3002:3001 --name cloud-demo-green ghcr.io/\$USERNAME/cloud-demo:latest
 
-            # Wait for GREEN to start
+            echo ' Waiting for GREEN to start...'
             sleep 10
 
-            # Health check GREEN
             if curl -s http://localhost:3002/health | grep -q 'ok'; then
-              echo '✅ GREEN is healthy! Switching traffic...'
-
-              # Update Caddy to point to GREEN (port 3002)
+              echo ' GREEN is healthy! Switching traffic to port 3002...'
               sudo sed -i 's/127.0.0.1:3001/127.0.0.1:3002/' /etc/caddy/Caddyfile
               sudo caddy reload
-
-              # Stop old BLUE container
-              docker stop cloud-demo || true
-              docker rm cloud-demo || true
-
-              echo '🚀 Traffic switched to GREEN (port 3002)'
+              echo ' GREEN is live, BLUE kept as backup.'
             else
-              echo '❌ GREEN failed health check. Keeping BLUE live.'
+              echo ' GREEN failed health check! Keeping BLUE live.'
               docker stop cloud-demo-green || true
               docker rm cloud-demo-green || true
             fi
