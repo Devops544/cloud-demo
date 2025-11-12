@@ -14,7 +14,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2️ Lowercase GHCR username
+      # 2️ Convert GHCR username to lowercase (GHCR requires lowercase names)
       - name: Set lowercase username
         id: vars
         run: echo "username=$(echo '${{ secrets.GHCR_USERNAME }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
@@ -31,7 +31,7 @@ jobs:
       - name: Push Docker image
         run: docker push ghcr.io/${{ steps.vars.outputs.username }}/cloud-demo:latest
 
-      # 6️ Blue-Green deployment on EC2 (no downtime rollback)
+      # 6️ Full automatic Blue-Green deploy with instant rollback
       - name: Blue-Green Deploy on EC2
         run: |
           mkdir -p ~/.ssh
@@ -44,7 +44,7 @@ jobs:
             echo ' Logging into GHCR...'
             docker login ghcr.io -u \$USERNAME -p ${{ secrets.GHCR_TOKEN }}
 
-            echo ' Pulling latest image...'
+            echo '⬇ Pulling latest Docker image...'
             docker pull ghcr.io/\$USERNAME/cloud-demo:latest
 
             echo ' Starting GREEN container on port 3002...'
@@ -52,17 +52,32 @@ jobs:
             docker rm cloud-demo-green || true
             docker run -d -p 3002:3001 --name cloud-demo-green ghcr.io/\$USERNAME/cloud-demo:latest
 
-            echo ' Waiting for GREEN to start...'
+            echo ' Waiting for GREEN startup...'
             sleep 10
 
+            echo ' Checking health of GREEN...'
             if curl -s http://localhost:3002/health | grep -q 'ok'; then
-              echo ' GREEN is healthy! Switching traffic to port 3002...'
+              echo ' GREEN is healthy! Switching traffic...'
+
+              #  Switch Caddy traffic from BLUE (3001) → GREEN (3002)
               sudo sed -i 's/127.0.0.1:3001/127.0.0.1:3002/' /etc/caddy/Caddyfile
               sudo caddy reload
-              echo ' GREEN is live, BLUE kept as backup.'
+              echo ' Traffic switched to GREEN (3002) successfully.'
+
+              # Keep BLUE idle for instant rollback
+              echo '🟦 Keeping BLUE container running (idle for rollback).'
+
             else
-              echo ' GREEN failed health check! Keeping BLUE live.'
-              docker stop cloud-demo-green || true
-              docker rm cloud-demo-green || true
+              echo '❌ GREEN failed health check! Rolling back automatically...'
+
+              #  Revert traffic to BLUE instantly
+              sudo sed -i 's/127.0.0.1:3002/127.0.0.1:3001/' /etc/caddy/Caddyfile
+              sudo caddy reload
+
+              echo ' Rolled traffic back to BLUE (3001).'
+              echo ' Keeping GREEN for debugging.'
             fi
+
+            echo ' Current containers status:'
+            docker ps --format 'table {{.Names}}\t{{.Ports}}\t{{.Status}}'
           "
