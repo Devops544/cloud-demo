@@ -65,7 +65,6 @@ jobs:
               echo ' Traffic switched to GREEN (port 3002). BLUE is idle for manual rollback.'
             else
               echo ' GREEN health check failed! Keeping BLUE live.'
-              docker stop cloud-demo-green || true
-              docker rm cloud-demo-green || true
+              # Do NOT remove GREEN, so you can inspect manually
             fi
           "
