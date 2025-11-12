@@ -3,18 +3,19 @@ name: Blue-Green Deploy Cloud Demo to EC2
 on:
   push:
     branches:
-      - main
+      - main       # Automatic trigger on push to main
+  workflow_dispatch: # Manual trigger via "Run workflow" button
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️ Checkout latest code
+      # 1️ Checkout code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2️ Convert GHCR username to lowercase (GHCR requires lowercase names)
+      # 2️ Lowercase GHCR username
       - name: Set lowercase username
         id: vars
         run: echo "username=$(echo '${{ secrets.GHCR_USERNAME }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
@@ -31,8 +32,8 @@ jobs:
       - name: Push Docker image
         run: docker push ghcr.io/${{ steps.vars.outputs.username }}/cloud-demo:latest
 
-      # 6️ Full automatic Blue-Green deploy with instant rollback
-      - name: Blue-Green Deploy on EC2
+      # 6️ Blue-Green deployment on EC2 (automatic switch)
+      - name: Deploy Green on EC2
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/key.pem
@@ -41,43 +42,30 @@ jobs:
           ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
             USERNAME=$(echo '${{ secrets.GHCR_USERNAME }}' | tr '[:upper:]' '[:lower:]')
 
-            echo ' Logging into GHCR...'
+            # Login to GHCR
             docker login ghcr.io -u \$USERNAME -p ${{ secrets.GHCR_TOKEN }}
 
-            echo '⬇ Pulling latest Docker image...'
+            # Pull latest image
             docker pull ghcr.io/\$USERNAME/cloud-demo:latest
 
-            echo ' Starting GREEN container on port 3002...'
+            # Run GREEN container on port 3002
             docker stop cloud-demo-green || true
             docker rm cloud-demo-green || true
             docker run -d -p 3002:3001 --name cloud-demo-green ghcr.io/\$USERNAME/cloud-demo:latest
 
-            echo ' Waiting for GREEN startup...'
+            # Wait for GREEN to start
             sleep 10
 
-            echo ' Checking health of GREEN...'
+            # Health check GREEN
             if curl -s http://localhost:3002/health | grep -q 'ok'; then
-              echo ' GREEN is healthy! Switching traffic...'
-
-              #  Switch Caddy traffic from BLUE (3001) → GREEN (3002)
+              echo ' GREEN is healthy, switching traffic automatically...'
+              # Update Caddy proxy automatically
               sudo sed -i 's/127.0.0.1:3001/127.0.0.1:3002/' /etc/caddy/Caddyfile
               sudo caddy reload
-              echo ' Traffic switched to GREEN (3002) successfully.'
-
-              # Keep BLUE idle for instant rollback
-              echo '🟦 Keeping BLUE container running (idle for rollback).'
-
+              echo ' Traffic switched to GREEN (port 3002). BLUE is idle for manual rollback.'
             else
-              echo '❌ GREEN failed health check! Rolling back automatically...'
-
-              #  Revert traffic to BLUE instantly
-              sudo sed -i 's/127.0.0.1:3002/127.0.0.1:3001/' /etc/caddy/Caddyfile
-              sudo caddy reload
-
-              echo ' Rolled traffic back to BLUE (3001).'
-              echo ' Keeping GREEN for debugging.'
+              echo ' GREEN health check failed! Keeping BLUE live.'
+              docker stop cloud-demo-green || true
+              docker rm cloud-demo-green || true
             fi
-
-            echo ' Current containers status:'
-            docker ps --format 'table {{.Names}}\t{{.Ports}}\t{{.Status}}'
           "
