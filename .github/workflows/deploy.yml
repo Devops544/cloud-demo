@@ -14,17 +14,25 @@ jobs:
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Run deployment script on EC2
-        uses: appleboy/ssh-action@master
+      - name: Copy deployment script to EC2
+        uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
+          source: "blue-green-deploy.sh"
+          target: "/home/ubuntu/cloud-demo"
+
+      - name: Run deployment script on EC2
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd /home/ubuntu/cloud-demo
             chmod +x blue-green-deploy.sh
-            GHCR_USERNAME=${{ secrets.GHCR_USERNAME }} GHCR_TOKEN=${{ secrets.GHCR_TOKEN }} ./blue-green-deploy.sh
+            ./blue-green-deploy.sh
