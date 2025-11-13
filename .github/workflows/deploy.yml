@@ -3,24 +3,28 @@ name: Blue-Green Deploy (Cloud Demo)
 on:
   push:
     branches:
-      - main  # or master, whichever your repo uses
+      - main
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Copy script to EC2
+      - name: Copy deployment script to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           source: "blue-green-deploy.sh"
-          target: "/home/ubuntu"
+          target: "/home/ubuntu/cloud-demo"
 
       - name: Run deployment script on EC2
         uses: appleboy/ssh-action@v0.1.7
@@ -29,6 +33,6 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            cd /home/ubuntu
+            cd /home/ubuntu/cloud-demo
             chmod +x blue-green-deploy.sh
             ./blue-green-deploy.sh
